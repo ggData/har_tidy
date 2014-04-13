@@ -1,0 +1,200 @@
+# Human Activity Recognition Using Smartphones
+
+## Assignment
+
+The purpose of this project is to demonstrate your ability to collect, work with, and clean a data set. The goal is to prepare tidy data that can be used for later analysis. You will be graded by your peers on a series of yes/no questions related to the project. You will be required to submit: 1) a tidy data set as described below, 2) a link to a Github repository with your script for performing the analysis, and 3) a code book that describes the variables, the data, and any transformations or work that you performed to clean up the data called CodeBook.md. You should also include a README.md in the repo with your scripts. This repo explains how all of the scripts work and how they are connected.  
+
+One of the most exciting areas in all of data science right now is wearable computing - see for example this article . Companies like Fitbit, Nike, and Jawbone Up are racing to develop the most advanced algorithms to attract new users. The data linked to from the course website represent data collected from the accelerometers from the Samsung Galaxy S smartphone. A full description is available at the site where the data was obtained: 
+
+http://archive.ics.uci.edu/ml/datasets/Human+Activity+Recognition+Using+Smartphones 
+
+Here are the data for the project: 
+
+https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip 
+
+You should create one R script called run_analysis.R that does the following:
+
+1. Merges the training and the test sets to create one data set.
+2. Extracts only the measurements on the mean and standard deviation for each measurement. 
+3. Uses descriptive activity names to name the activities in the data set
+4. Appropriately labels the data set with descriptive activity names. 
+5. Creates a second, independent tidy data set with the average of each variable for each activity and each subject. 
+
+Good luck!
+
+----
+
+# This Analysis
+
+The specification of the project is ambiguously worded and has been the subject of debate in the discussion forums. This section clarifies the assumptions that have been made for the purposes of this analysis:
+
+- Merging the training and test datasets is taken to mean collecting the subject means and standard deviations and ignoring the raw inertial signals that are also provided.
+- Points 3. and 4. of the project specification imply that the activity labels (e.g. 'WALKING' or 'LAYING') are used to replace the integer labels in the relevant `y_test.txt` and `y_train.txt` files.
+- The tidy set required for the final submission needs to contain: "the **average** of each **variable** for each **activity** and each **subject**". Therefore, the aim is to produce a tidy set with four headings:
+
+1. **subject**: the id of the relevant participant
+2. **activity**: the lable of the action the subject was performing
+3. **variable**: the name of the index being measured (only the means are requested)
+4. **value**: the mean of the variable under consideration.
+
+## Datasource
+
+> Davide Anguita, Alessandro Ghio, Luca Oneto, Xavier Parra and Jorge L. Reyes-Ortiz.  
+> Human Activity Recognition on Smartphones using a Multiclass Hardware-Friendly Support Vector Machine.  
+> International Workshop of Ambient Assisted Living (IWAAL 2012).   
+> Vitoria-Gasteiz, Spain. Dec 2012
+
+## Initialization
+
+This section loads all the required libraries and creates a series of global variables.
+
+```{r libraries}
+library(data.table)  # used instead of the native data.frame for speed
+library(reshape2)  # used to melt() the tidy dataset
+```
+
+A set of global pathnames are defined. These will allow easier portability in case the script needs to run on a different system or to be modified to fit a different directory structure.
+
+```{r globals}
+BASE_DIR = 'UCI HAR Dataset'
+TEST_DIR = file.path(BASE_DIR, 'test')
+TRAIN_DIR = file.path(BASE_DIR, 'train')
+
+DATA_URL = 'https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip'
+DATA_FILE = 'getdata-projectfiles-UCI HAR Dataset.zip'
+DATA_DIR = file.path('.', 'data')
+MERGED_DATA = file.path(DATA_DIR, 'full_data.Rdata')
+MERGED_DATA_TXT = file.path(DATA_DIR, 'full_data.csv')
+TIDY_DATA = file.path(DATA_DIR, 'tidy_data.Rdata')
+TIDY_DATA_TXT = file.path(DATA_DIR, 'tidy_data.csv')
+```
+
+## Check for data presence
+
+These scripts assume that:
+
+- the data has been downloaded to a zip file called 'getdata-projectfiles-UCI HAR Dataset.zip'
+- this file is in the same folder as the analysis script
+- if not present, the data archive is downloaded from source
+
+For the rest of the script, we will read data directly from the zip archive. It should be noted that zip archives are a file-system within a system and do not need to be unzipped. Files in the archive will be accessed directly using the `unz()` command. 
+
+```{r prepare_data}
+# function to download to destination file with or without replacement
+safe.download = function(url, dest, replace=FALSE, method='auto') {
+  # @ url: of file to download  
+  # @ dest: pathname to destination file  
+  # @ replace: set to TRUE if to over-write existing file  
+  # @ method: can also be 'curl', 'wget', or 'lynx'
+  if (!replace & file.exists(dest)) {
+    return(TRUE)
+  }
+  download.file(url, dest, method)
+}
+
+# ensure we have data here
+if(!file.exists(file.path('.', DATA_FILE))){
+  safe.download(DATA_URL, DATA_FILE, method='curl')
+}
+
+# and ensure data folder for our results
+if(!file.exists(DATA_DIR)){
+  dir.create(DATA_DIR)
+}
+```
+
+## Extract and Merge Data
+
+There dataframes are created:
+
+- `features` contains the names of the variables on which measurements have been made. They will be used as column names int he full dataset.
+- `mean_std_cols` is a subset of `features` selected by a regular expression that extracts only column names with the strings `mean()` or `std()` in them. These are the columns containign the values of the mean or standard deviations
+- `activity_labels` contains the labels of Activities of Daily Living that will be used instead of the numerical labels in the full dataset.
+
+```{r prep_features_and_activity_labels}
+features = read.table(unz(DATA_FILE, 
+                          file.path(BASE_DIR, 'features.txt')))
+mean_std_cols = as.character(features$V2[grep(pattern='mean()|std()',features$V2)])
+activity_labels = read.table(unz(DATA_FILE, 
+                                 file.path(BASE_DIR, 'activity_labels.txt')))
+```
+
+We are ready to now extract the data. A generic function is defined that will take on parameter, `set`. If `set` has a value of `test`, the function extracts and returns the testing set otherwise the training dataset is returned.
+
+```{r data_extraction}
+extract = function(set='test') {
+    subject_filename = paste0('subject_', set, '.txt')
+    X_filename = paste0('X_', set, '.txt')
+    y_filename = paste0('y_', set, '.txt')
+    
+    if (set=='test') {
+      DIR = TEST_DIR
+    } else {
+      DIR = TRAIN_DIR
+    }
+    
+    subject = read.table(unz(DATA_FILE, 
+                             file.path(DIR, subject_filename)))
+    
+    X = read.table(unz(DATA_FILE, 
+                       file.path(DIR, X_filename)))
+    names(X) = features[,2]
+    X = X[,mean_std_cols]
+    
+    y = read.table(unz(DATA_FILE, 
+                       file.path(DIR, y_filename)))
+    y$activity = sapply(y$V1, function(x) activity_labels[x,'V2'])
+    
+    data = data.table(subject = subject$V1,
+                      activity = y$activity,
+                      set = set)
+    data = cbind(data, X)
+    return(data)
+}
+```
+
+The data having been cleansed, the two datasets are extracted, merged, and the full dataset is saved to disk.
+
+```{r extract_two_datasets}
+test_data = extract(set='test')
+train_data = extract(set='train')
+```
+
+```{r merge_datasets}
+full_data = rbind(test_data, train_data)
+
+save(full_data, file=MERGED_DATA)
+write.table(full_data, file=MERGED_DATA_TXT, sep=',', row.names = FALSE)
+```
+
+## Create Tidy Dataset
+
+The assignment:
+
+> Create a second, independent tidy data set with   
+> the average of each variable   
+> for each activity  
+> and each subject
+
+This means that we should:
+
+1. Select and retain only those measurement columns that contain the mean of a variable
+2. Create a new data table that has the columns: activity, subject, variable name, variable mean
+
+### Select the column names with `mean`
+
+```{r extract_mean_columns}
+mean_cols = names(full_data)
+mean_cols = as.character(mean_cols[grep(pattern='mean()',mean_cols)])
+```
+
+### Save
+
+Extract the desired columns and melt them.
+
+```{r prep_and_save_tidy_dataset}
+tidy_data = full_data[,c('subject', 'activity', mean_cols), with=FALSE]
+tidy_data = melt(tidy_data, id=c('subject', 'activity'))
+save(tidy_data, file=TIDY_DATA)
+write.table(tidy_data, file=TIDY_DATA_TXT, sep=',', row.names = FALSE)
+```
