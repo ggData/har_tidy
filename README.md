@@ -1,11 +1,11 @@
 # Human Activity Recognition Using Smartphones: A Tidy Dataset
 
-- by: ggData
-- date: 13 April 2014
+Author: **ggData**  
+Date: **13 April 2014**
 
 This project is presented as a personal project in partial fulfillment of the Coursera course on [Getting and Cleaning Data](https://class.coursera.org/getdata-002).
 
-This README file describes solely how to run the script and the file structure. The details of the analysis are documents in the `run_analysis.Rmd` file.
+**This README file describes solely how to run the script and the file structure. The details of the analysis are documented in the `run_analysis.Rmd` file.** 
 
 ## Quick Start
 
@@ -34,10 +34,15 @@ Both of the output data files are saved in native `R` format and as a `.csv` fil
 - `run_analysis.Rmd`: the full annotated analysis documenting the process of data download, extraction, merging, and tidying
 - `run_analysis.R`: the active code from `run_analysis.Rmd` -- extracted automatically using the `knitr` package. If the `.Rmd` code is edited, the script can be re-generated as follow:
 
-    install.packages("knitr")  # if knitr is not on the system yet
+```
+    # if knitr is not on the system yet
+    install.packages("knitr")  
     library("knitr")
     purl("run_analysis.Rmd")
-    source('run_analysis.R')  # to run the full script
+    
+    # to run the full script
+    source('run_analysis.R')  
+```
 
 ## Note
 
